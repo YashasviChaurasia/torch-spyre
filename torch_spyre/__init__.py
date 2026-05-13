@@ -60,15 +60,11 @@ class _SpyreImpl:
             # put any light, once-per-process setup here
             self._C = importlib.import_module("torch_spyre._C")
             # Apply pending device index before runtime init.
-            # Priority: explicit set_device() > LOCAL_RANK > RANK > default(0)
-            # The C++ side already checks LOCAL_RANK, but we also check here
-            # to handle cases where frameworks (e.g. vLLM multiproc_executor)
-            # set LOCAL_RANK after fork but before first device access.
+            # Only use _pending_device_idx (set by explicit set_device() call).
+            # Do NOT fallback to LOCAL_RANK env var here — the C++ side already
+            # reads LOCAL_RANK in _startRuntime(). Reading it here would cause
+            # problems in multiproc workers that inherit the parent's LOCAL_RANK.
             pending = self._pending_device_idx
-            if pending is None:
-                local_rank = os.environ.get("LOCAL_RANK")
-                if local_rank is not None:
-                    pending = int(local_rank)
             if pending is not None:
                 self._C.set_device(pending)
             # this will create the allocator
@@ -132,6 +128,10 @@ class _SpyreImpl:
 
     def set_device(self, idx: int) -> None:
         self._pending_device_idx = int(idx)
+        # Update LOCAL_RANK env var so that if _lazy_init() fires from an
+        # unexpected code path (e.g. torch._dynamo triggering device access),
+        # the C++ _startRuntime() reads the correct device index.
+        os.environ["LOCAL_RANK"] = str(int(idx))
         # If runtime is already initialized, also set it on the C++ side.
         if self._initialized:
             fn = getattr(self._C, "set_device", None)

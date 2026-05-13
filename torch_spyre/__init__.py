@@ -59,8 +59,16 @@ class _SpyreImpl:
             # Load the C++ Module
             # put any light, once-per-process setup here
             self._C = importlib.import_module("torch_spyre._C")
-            # Apply pending device index before runtime init
+            # Apply pending device index before runtime init.
+            # Priority: explicit set_device() > LOCAL_RANK > RANK > default(0)
+            # The C++ side already checks LOCAL_RANK, but we also check here
+            # to handle cases where frameworks (e.g. vLLM multiproc_executor)
+            # set LOCAL_RANK after fork but before first device access.
             pending = self._pending_device_idx
+            if pending is None:
+                local_rank = os.environ.get("LOCAL_RANK")
+                if local_rank is not None:
+                    pending = int(local_rank)
             if pending is not None:
                 self._C.set_device(pending)
             # this will create the allocator
@@ -131,8 +139,15 @@ class _SpyreImpl:
                 fn(int(idx))
 
     def _mark_after_fork(self):
-        self._initialized = True
-        self._in_bad_fork = True
+        # Only mark as bad fork if the runtime was already initialized in the
+        # parent process. If the parent hadn't initialized (common in
+        # multiprocessing.Process workers spawned before first device access),
+        # allow the child to initialize its own runtime with its own device.
+        if self._initialized:
+            self._in_bad_fork = True
+        else:
+            # Reset pending device so the child can pick up its own LOCAL_RANK
+            self._pending_device_idx = None
 
 
 def make_spyre_module() -> types.ModuleType:

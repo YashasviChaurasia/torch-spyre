@@ -48,17 +48,22 @@ class SpyreInterface(DeviceInterface):
         return ""
 
     class Worker(DeviceInterface.Worker):
-        # TODO (yoheiueda) Support non-zero index values when multiple Spyre cards are supported in the future
         @staticmethod
         def set_device(device: int):
-            raise NotImplementedError
+            torch.spyre.set_device(device)  # type: ignore[attr-defined]
 
         @staticmethod
         def current_device() -> int:
-            return 0
+            return torch.spyre.current_device()  # type: ignore[attr-defined]
 
         @staticmethod
         def get_device_properties(device: torch.types.Device = None):
-            # TODO (tmhoangt): read this from cache
-            # as worker process don't get access to device due to driver limitation
-            return SpyreDeviceProperties(type="dd2", index=0, multi_processor_count=32)
+            if device is None:
+                idx = 0
+            elif isinstance(device, int):
+                idx = device
+            else:
+                idx = device.index if device.index is not None else 0
+            return SpyreDeviceProperties(
+                type="dd2", index=idx, multi_processor_count=32
+            )

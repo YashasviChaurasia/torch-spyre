@@ -284,7 +284,7 @@ def _layernormnorm_layout(
 
 
 def _index_symbols(dep: "MemoryDep") -> "set[sympy.Symbol]":
-    return dep.index.free_symbols
+    return dep.index.free_symbols & set(dep.ranges.keys())
 
 
 def _find_reduction_var(x_dep, out_dep, op_name: str = "reduction") -> "sympy.Symbol":
